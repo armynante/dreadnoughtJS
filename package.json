@@ -1,0 +1,19 @@
+{
+  "name": "battleship",
+  "version": "1.0.0",
+  "description": "A command line battleship game ",
+  "main": "battleship.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "cli",
+    "battleship",
+    "game"
+  ],
+  "author": "Andrew Armenante",
+  "license": "ISC",
+  "dependencies": {
+    "cli-color": "^1.0.0"
+  }
+}
