@@ -2,6 +2,8 @@ process.stdin.resume();
 process.stdin.setEncoding('utf8');
 
 var attemps = 0;
+var rounds = 0;
+var over = false;
 
 var util = require('util');
 var clc = require('cli-color');
@@ -60,18 +62,27 @@ function Shot(player) {
   this.col = null;
   this.hit = false;
   this.fireBlind = function() {
-      _this.row = Util.randNum(9);
-      _this.col = Util.randNum(9);
+
+      var randTile = game[_this.player].board.randomKey();
+      _this.row = randTile.row;
+      _this.col = randTile.col;
+
+      var intTostring =  _this.row.toString() + _this.col.toString();
+     
+      delete game[_this.player].board.availableTiles[intTostring];
+     
      _this.hit =  game[_this.player].board.fire(_this.row,_this.col);
-     if (_this.hit === 'alreadyHit') {
-      console.log("Blind aleardy Hit");
-      _this.fireBlind();
-     }
+
   }
+  //if a shot is taken
+  //clone the state
   this.fire = function(r,c) {
       _this.row = r;
       _this.col = c;
+      var intTostring = r.toString() + c.toString();
       _this.hit = game[_this.player].board.fire(r,c);
+      delete game[_this.player].board.availableTiles[intTostring];
+
   }
 }
 
@@ -91,11 +102,7 @@ function firingSolution(player) {
        var volly = new Shot(_this.player);
        volly.fire(node.row,node.col);
 
-       if (volly.hit === 'alreadyHit') {
-          console.log('alreadyHit');
-          _this.fire();
-       }
-       if (volly.hit) { /// NEEDS REFACTOR TO BRING TILE CLOSE TO PLAYER IN RETURN FROM BOARD
+       if (volly.hit) { // the player has hit a target 
          var shipClass = game[_this.player].board.state[volly.row][volly.col].shipClass;
          var shipState = game[_this.player].damage(shipClass);
          _this.solutionPath.push(volly);
@@ -106,21 +113,22 @@ function firingSolution(player) {
       } else {
         var volly = new Shot(_this.player);
         volly.fireBlind();
-        if (volly.hit === 'alreadyHit' ) {
-          _this.fire();
-        }
         if (volly.hit) {
           _this.solutionPath.push(volly);
           _this.targetArea = game[_this.player].board.surroundingTiles(volly.row,volly.col);
+          var shipClass = game[_this.player].board.state[volly.row][volly.col].shipClass;
+          game[_this.player].damage(shipClass);
         } else {
           console.log("!!!!!!!MISS!!!!!!")
         }
 
       }
-      game.player2.board.render();
     } else {
-      console.log('!!!! GAME WON !!!!');
+      over = true; 
+      console.log('!!!! ' + _this.player + ' WON !!!!');
     }
+    rounds ++
+    console.log('rounds___:' + rounds)
   }
 }
 
@@ -134,18 +142,7 @@ function Board() {
 
   var _this = this;
 
-  this.state = [
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    []
-  ];
+
   this.renderedBoard = [
     [],
     [],
@@ -158,30 +155,72 @@ function Board() {
     [],
     []
   ];
+  this.state =[
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    []
+  ];
+
+  this.availableTiles = {};
 
   this.buildBoard = function () {
     for (var r = 0; r < Util.cols.split(" ").length; r++) {
       for (var c = 0; c < Util.rows.split(" ").length; c++) {
-        var tile = new Tile(r, c);
+        var tile = new Tile(r, c);c
         _this.state[r][c] = tile;
+        stringKey  = r.toString() + c.toString()
+        _this.availableTiles[stringKey] =  tile ;
       }
     }
+    _this.state;
   };
 
+  this.randomKey = function() {
+          var result;
+          var count = 0;
+          for (var prop in _this.availableTiles) {
+              if (Math.random() < 1/++count) {
 
-  this.render = function () {
-    console.log('\033[2J');
+                 result = prop;
+              }
+        };
+          return _this.availableTiles[result]
+  }
+
+
+  this.render = function (visibility) {
+   
     for (var r = 0; r < _this.state.length; r++) {
       for (var c = 0; c < _this.state[r].length; c++) {
         var state = _this.state[r][c];
-        state.vacant ? _this.renderedBoard[r][c] =  clc.blackBright("0") : _this.renderedBoard[r][c] = clc.whiteBright(Ships[state.shipClass].callSign);
-
+        
+        _this.renderedBoard[r][c] =  clc.blackBright("0");
+          
         if (state.hit) {
            _this.renderedBoard[r][c] = clc.redBright("!");
         }
         if (state.hit === false) {
            _this.renderedBoard[r][c] = clc.magenta("X");
         }
+          
+        if (visibility === 'visible') {
+          state.vacant ? _this.renderedBoard[r][c] =  clc.blackBright("0") : _this.renderedBoard[r][c] = clc.whiteBright(Ships[state.shipClass].callSign);
+           if (state.hit) {
+           _this.renderedBoard[r][c] = clc.redBright("!");
+        }
+        if (state.hit === false) {
+           _this.renderedBoard[r][c] = clc.magenta("X");
+        }
+          
+        }
+
 
       }
     }
@@ -294,7 +333,6 @@ function Board() {
 
   this.fire = function(r,c) {
     tile = _this.state[r][c];
-
     if (!tile.vacant && tile.hit === null ) {
       _this.state[r][c].hit = true;
       return true;
@@ -368,8 +406,10 @@ function Player() {
         _this.shipState[i].hitCount ++;
         if (_this.shipState[i].hitCount === Ships[shipClass].width) {
           _this.shipState[i].sunk = 0;
-          debugger;
           console.log("You sunk the " + shipClass + " !");
+          //Check to see is the game has been won.
+          var winSum = _this.shipStateInfo('sunk');
+
         }; 
       }
     };
@@ -434,12 +474,10 @@ function Game() {
         return true;
 
       } else {
-        console.log('Not a valid placement!');
 
       }
 
     } else {
-      console.log("Thats not a valid ship!");
 
     }
   };
@@ -483,13 +521,56 @@ console.log(clc.red(Render.introText));
   buildEnemyBoard()
   autoPlaceBoard()
   // placeShips();
-  console.log('Player1.....................')
-  game.player1.board.render();
-  console.log('Player2.....................')
-  game.player2.board.render();
 
-  fs = new firingSolution('player2');
-  fs.fire();
+  enemyFs = new firingSolution('player1');
+  myFs = new firingSolution('player2');
+  playGame();
+
+  function playGame() {
+    if (!over) {
+      console.log('\033[2J');
+      console.log('______YOUR  BOARD______')
+      game.player1.board.render('visible');
+      console.log('______ENEMY BOARD______')
+      game.player2.board.render('hidden');
+        
+      myFs.fire();
+      enemyFs.fire();
+      playGame();
+      };
+  }
+
+  // function playGame() {
+  //   console.log('\033[2J');
+  //   console.log('______YOUR  BOARD______')
+  //   game.player1.board.render('visible');
+  //   console.log('______ENEMY BOARD______')
+  //   game.player2.board.render('hidden');
+  //   console.log('Take a shot');
+  //     process.stdin.once('data', function (input) {
+  //       if (input === 'quit\n') {
+  //         process.exit();
+  //       } else {
+  //         input = input.trim().split("");
+  //         row = parseInt(input[0] - 1);
+  //         col = Util.charMap[input[1].toUpperCase()] - 1;
+  //         console.log("row___: " + row);
+  //         console.log("col___: " + col);
+  //         volly = game.player2.board.fire(row,col);
+  //         if (volly) {
+  //           console.log("HIT");
+  //         } else {
+  //           console.log("MISS");
+  //         }
+  //       }
+  //       enemyFs.fire();
+  //       playGame();
+  //   });
+  // }
+
+
+
+
 
 
 
@@ -517,7 +598,6 @@ function buildEnemyBoard() {
       };
     }
   }
-      console.log(attemps ++);
 }
 
 function autoPlaceBoard() {
@@ -541,7 +621,6 @@ function autoPlaceBoard() {
       };
     }
   }
-      console.log(attemps ++);
 }
 
 
