@@ -1,77 +1,33 @@
 
 process.stdin.resume();
 process.stdin.setEncoding('utf8');
+var Util = require('./util');
 
-// figure out stack overfow issue.
-// probably because of board placements 
-
-var csvWriter = require('csv-write-stream')
-var writer = csvWriter()
-
-var attemps = 0;
-var round = 0;
-var over = true;
-var won = null;
-var games = 0;
-var fs = require('fs');
-
-
-var util = require('util');
+//COLOR STUFF////////////////////
 var clc = require('cli-color');
-
+var style = { "w": clc.blue("w"), "W": clc.yellowBright("W")};
 var error = clc.red.bold;
 var info = clc.cyanBright;
 
-// define the board
-var Ships = {
-    carrier: {
-        width: 5,
-        callSign: "C",
-        possibleNames: ["carrier", "c", "Carrier", "C"]
-    },
-    battleship: {
-        width: 4,
-        callSign: "B",
-        possibleNames: ["battle", "b", "battleship", "battle ship", "Battleship", "Battle", "B"]
-    },
-    destroyer: {
-        width: 3,
-        callSign: "D",
-        possibleNames: ["d", "destroyer", "Destroyer", "D"]
-    },
-    submarine: {
-        width: 3,
-        callSign: "S",
-        possibleNames: ["sub", "submarine", "s", "Sub", "Submarine"]
-    },
-    patrolBoat: {
-        width: 2,
-        callSign: "P",
-        possibleNames: ["pb", "patrol", "patrol boat", "patrolboat", "Patrol Boat", "PB", "P", "p"]
-    }
-};
+// Global game variables 
+var over = false;
+var won = null;
+var round = 0;
 
-var Util = {
-    cols: "A B C D E F G H I J",
-    rows: "1 2 3 4 5 6 7 8 9 10",
-    spacers: "# 1 2 3 4 5 6 7 8 9 X",
-    directions: ["up", "down", "left", "right"],
-    charMap: "A B C D E F G H I J".split(" ")
-        .reduce(function(obj, key, i) {
-            obj[key] = i + 1;
-            return obj;
-        }, {}),
-    randNum: function(maxInt) {
-        return Math.floor(Math.random() * maxInt) + 1
-    }
-}
-
-function Shot(player) {
+function Salvo(player) {
     var _this = this;
     this.player = player;
     this.row = null;
     this.col = null;
     this.hit = false;
+
+    this.fire = function(row,col) {
+        _this.row = row;
+        _this.col = col;
+        _this.hit = game[_this.player].board.fire(row, col);
+        _this.applyDamage();
+
+    }
 
     this.fireBlind = function() {
         var validShips = game[_this.player].shipsLeft();
@@ -80,60 +36,63 @@ function Shot(player) {
         _this.row = bestGuess.row;
         _this.col = bestGuess.col;
         _this.hit = game[_this.player].board.fire(_this.row, _this.col);
-        console.log("HIT____: " + _this.hit);
+        _this.applyDamage();
+    }
+
+    this.applyDamage = function() {
+        if (_this.hit) {
+            var shipClass = game[_this.player].board.state[_this.row][_this.col].shipClass;
+            //check to see if the ship sunk;
+            _this.sunk = game[_this.player].damage(shipClass);
+        }
     }
 
 }
 
 function firingSolution(player) {
     var _this = this;
-    this.player = player;
+    this.player = player; // player is the target
     this.targetArea = [];
+    this.lastHits = [];
+    this.estimatedVector = null;
+    this.lastShipSunk =
 
-    this.fire = function() {
-        //caulate best shot
+    //This function if for human consumption
+    this.openFire = function(row,col) {
         round++;
+        var salvo = new Salvo(_this.player);      
+        salvo.fire(row,col);
+    }
+
+
+    //Only to be called by AI
+    this.autoFire = function(r,c) {
+        round++;
+        var salvo = new Salvo(_this.player);
+
         //make sure there are ships left to hit 
         //i.e the game is not over
         if (!game[_this.player].shipStateInfo('sunk')) {
-
-            // if (_this.targetArea.length > 0) {
-            //     console.log('fire at target path')
-            //     // a previous shot was a hit
-            //     var node = _this.targetArea.pop(); //returns array [r,c]
-            //     var volly = new Shot(_this.player);
-            //     game[_this.player].board.fire(node.row, node.col);
-
-            //     if (volly.hit) { // the player has hit a target 
-            //         var shipClass = game[_this.player].board.state[volly.row][volly.col].shipClass;
-            //         var shipState = game[_this.player].damage(shipClass);
-            //     }
-
-            // } else {
-                var volly = new Shot(_this.player);
-                volly.fireBlind();
-                console.log('fire blind')
-                if (volly.hit) {
-                    _this.targetArea = game[_this.player].board.surroundingTiles(volly.row, volly.col);
-                    var shipClass = game[_this.player].board.state[volly.row][volly.col].shipClass;
-                    game[_this.player].damage(shipClass);
-                // }
-
-                }
+            if (_this.targetArea.length > 0) {
+                var target = _this.targetArea.pop();
+                salvo.fire(target.row,target.col);
+            } else {
+                salvo.fireBlind();
+                if (salvo.hit) {
+                   _this.targetArea = game[_this.player].board.surroundingTiles(salvo.row, salvo.col) 
+                };
+            }
         } else {
-            console.log('!!!! ' + _this.player + ' WON !!!!');
+            // needed for ai vs ai battles
             won = _this.player;
             over = true;
-            games++;
         }
-        // console.log('rounds___:' + round / 2)
     }
 }
 
 function Board() {
 
     var _this = this;
-
 
     this.renderedBoard = [
         [],
@@ -163,8 +122,8 @@ function Board() {
     this.availableTiles = {};
 
     this.buildBoard = function() {
-        for (var r = 0; r < Util.cols.split(" ").length; r++) {
-            for (var c = 0; c < Util.rows.split(" ").length; c++) {
+        for (var r = 0; r < Util.belt.cols.split(" ").length; r++) {
+            for (var c = 0; c < Util.belt.rows.split(" ").length; c++) {
                 var tile = new Tile(r, c);
       
                 _this.state[r][c] = tile;
@@ -187,15 +146,17 @@ function Board() {
         return _this.availableTiles[result]
     }
 
-
+    // visiblity allows diferent render states
+    // 'VISIBLE' allows for board to shows ship class
     this.render = function(visibility) {
 
         for (var r = 0; r < _this.state.length; r++) {
-            for (var c = 0; c < _this.state[r].length; c++) {
+            for (var c = 0; c < _this.state.length; c++) {
                 var state = _this.state[r][c];
-
-                _this.renderedBoard[r][c] = _this.state[r][c].density;
-
+                _this.renderedBoard[r][c] = clc.blackBright("0")
+                if (r % 2 === 0) {
+                     _this.renderedBoard[r][c] = clc.blackBright.bgWhite("0");
+                };
                 if (state.hit) {
                     _this.renderedBoard[r][c] = clc.redBright("!");
                 }
@@ -204,7 +165,9 @@ function Board() {
                 }
 
                 if (visibility === 'visible') {
-                    state.vacant ? _this.renderedBoard[r][c] = clc.blackBright("0") : _this.renderedBoard[r][c] = clc.whiteBright(Ships[state.shipClass].callSign);
+
+                    state.vacant ? _this.renderedBoard[r][c] = clc.blackBright("0") : _this.renderedBoard[r][c] = clc.whiteBright(Util.ships[state.shipClass].callSign);
+                    
                     if (state.hit) {
                         _this.renderedBoard[r][c] = clc.redBright("!");
                     }
@@ -217,10 +180,10 @@ function Board() {
 
             }
         }
-        _this.renderedBoard.splice(0, 0, Util.cols.split(" "));
+        _this.renderedBoard.splice(0, 0, Util.belt.cols.split(" "));
 
         for (var i = 0; i < _this.renderedBoard.length; i++) {
-            _this.renderedBoard[i].splice(0, 0, Util.spacers.split(" ")[i]);
+            _this.renderedBoard[i].splice(0, 0, Util.belt.spacers.split(" ")[i]);
         }
 
         for (var n = 0; n < _this.renderedBoard.length; n++) {
@@ -231,11 +194,10 @@ function Board() {
                 var row = _this.renderedBoard[n].splice(0, 1);
                 var rest = _this.renderedBoard[n].join("  ");
 
-                console.log(clc.blue(row[0]) + "  " + rest);
+                console.log(clc.green(row[0]) + "  " + rest);
             }
         };
         _this.renderedBoard.splice(0, 1);
-        // console.log(_this.state);
         console.log("\n");
     };
 
@@ -248,7 +210,7 @@ function Board() {
         switch (orientation) {
 
             case "up":
-                for (var i = 0; i < Ships[shipClass].width; i++) {
+                for (var i = 0; i < Util.ships[shipClass].width; i++) {
 
                     var row = startRow - i ;
                     var col = startCol;
@@ -263,7 +225,7 @@ function Board() {
                 }
                 break;
             case "down":
-                for (var i = 0; i < Ships[shipClass].width; i++) {
+                for (var i = 0; i < Util.ships[shipClass].width; i++) {
 
                     var row = startRow + i;
                     var col = startCol;
@@ -278,7 +240,7 @@ function Board() {
                 }
                 break;
             case "left":
-                for (var i = 0; i < Ships[shipClass].width; i++) {
+                for (var i = 0; i < Util.ships[shipClass].width; i++) {
                     var row = startRow
                     var col = startCol - i;
 
@@ -293,7 +255,7 @@ function Board() {
                 }
                 break;
             case "right":
-                for (var i = 0; i < Ships[shipClass].width; i++) {
+                for (var i = 0; i < Util.ships[shipClass].width; i++) {
 
                     var row = startRow;
                     var col = startCol + i;
@@ -320,7 +282,7 @@ function Board() {
         var orientations = ['up','down','left','right'];
         var highestDensity = 0;
         var bestGuess = null;
-            
+    
         for (var i = 0; i < _this.state.length; i++) {
           for (var c = 0; c < _this.state[i].length; c++) {
             _this.state[i][c].density = 0;
@@ -399,7 +361,7 @@ function Board() {
             var row = boxArray[i][0] + r;
             var col = boxArray[i][1] + c;
 
-            if (col >= 0 && row >= 0 && col <= 9 && row <= 9 && _this.state[row][col].hit === null && _this.state[row][col].vacant) {;
+            if (col >= 0 && row >= 0 && col <= 9 && row <= 9 && _this.state[row][col].hit === null) {;
                 tiles.push(_this.state[row][col]);
             };
         };
@@ -412,10 +374,7 @@ function Board() {
             _this.state[r][c].hit = true;
             return true;
         }
-        if (tile.hit === false) {
-            console.log('alreadyHit');
-            return 'alreadyHit';
-        } else {
+        else {
             _this.state[r][c].hit = false;
             return false
         }
@@ -437,8 +396,8 @@ function Tile(r, c) {
     this.density = 0;
 }
 
-function Player() {
-    this.name = "";
+function Player(name) {
+    this.name = name;
     this.placeState = [null];
     var _this = this;
 
@@ -479,15 +438,20 @@ function Player() {
         for (var i = 0; i < _this.shipState.length; i++) {
             if (_this.shipState[i].type === shipClass) {
                 _this.shipState[i].hitCount++;
-                if (_this.shipState[i].hitCount === Ships[shipClass].width) {
+                if (_this.shipState[i].hitCount === Util.ships[shipClass].width) {
                     _this.shipState[i].sunk = 0;
                     console.log("You sunk the " + shipClass + " !");
-                    //Check to see is the game has been won.
-                    var winSum = _this.shipStateInfo('sunk');
-
+                    // //Check to see is the game has been won.
+                    if ( _this.shipStateInfo('sunk')) {
+                        _this.player
+                        won = _this.name;
+                        over = true;
+                    };;
+                    return true;
                 };
             }
-        };
+        }
+        return false;
     }
 
     this.shipsLeft = function() {
@@ -536,8 +500,29 @@ function Player() {
 
 function Game() {
     var _this = this;
-    this.player1 = new Player();
-    this.player2 = new Player();
+    this.player1 = new Player('AI');
+    this.player2 = new Player('HUMAN');
+
+    this.renderShipState = function() {
+        //space to make text block even length
+        var spaceLength = 12;
+        console.log( clc.blackBright('__________STATUS_REPORT__________\n'));
+        // both player have the same ships so we can loop though just one
+        console.log( clc.blackBright('           Your Ships  Their Ships\n'))
+        for (var i = 0; i < _this.player1.shipState.length; i++) {
+            player1ship = _this.player1.shipState[i];
+            AIship = _this.player2.shipState[i];
+            state = player1ship.sunk === 0 ? clc.blueBright("SUNK     ") : clc.greenBright("IN ACTION");
+            AIstate = AIship.sunk === 0 ? clc.blueBright("SUNK     ") : clc.yellowBright("UNKNOWN");
+            var addedSpace = spaceLength - player1ship.type.length;
+            shipName = player1ship.type;
+            for (var b = 0; b < addedSpace; b++) {
+                shipName = shipName + " ";
+            }
+            console.log(shipName + clc.blueBright(state) + clc.blackBright('  |  ') + AIstate);
+        };
+        console.log('\n');
+    }
 
     this.setup = function() {
         _this.player1.board.initialiaze();
@@ -546,10 +531,10 @@ function Game() {
 
     this.placeShipState = function(shipClass, row, col, orientation, player) {
 
-        row = parseInt(row) + 1;
-        col = parseInt(col) + 1;
+        row = parseInt(row);
+        col = parseInt(col);
 
-        if (Ships[shipClass]) {
+        if (Util.ships[shipClass]) {
 
             valid = _this[player].board.placeBoat(shipClass, orientation, row, col, false, false);
 
@@ -590,152 +575,93 @@ var Render = {
 };
 
 
-var style = {
-    "w": clc.blue("w"),
-    "W": clc.yellowBright("W")
-};
-
 process.stdout.write(clc.art(Render.battleShip, style));
 console.log(clc.red(Render.introText));
 
 
-// game = new Game();
-// game.setup();
-
-// buildEnemyBoard()
-// autoPlaceBoard()
-//     // placeShips();
-
-// enemyFs = new firingSolution('player1');
-// myFs = new firingSolution('player2');
-
-writer.pipe(fs.createWriteStream('out.csv'))
-
+game = new Game();
+game.setup();
+autoPlaceBoard('player1')
+autoPlaceBoard('player2')
+enemyFs = new firingSolution('player1'); //solution is for the target not player
+playerFs = new firingSolution('player2'); //solution is for the target not player
+// startGame();
+playGame();
 
 
 function playGame() {
-    if (over === false) {
-    // setTimeout(function() {
+    if (!over) {
 
-      // console.log('\033[2J');
-      // console.log('______YOUR  BOARD______')
-      // game.player1.board.render('visible');
-      // console.log('______ENEMY BOARD______')
-      // game.player2.board.render('hidden');
-      // console.log(game.player2.board.densityMap)
-      myFs.fire();
-      enemyFs.fire();
-      playGame();
-  // }, 1000);
+        console.log('\033[2J'); // clear screen;
 
-    }else{
+        console.log('______YOUR  BOARD______')
+        game.player1.board.render('visible');
 
-      writer.write({winner: won, rounds: round / 2})
+        console.log('______ENEMY BOARD______')
+        game.player2.board.render('hidden');
+        game.renderShipState();
 
+        console.log('Take a shot\n');
+        var inputRow;
+        var inputCol;
 
-      attemps = 0;
-      round = 0;
-      won = null;
-      over = false;
-      
+        ///SOMTHING IS GOING ON WITH THE RUN LOOP
+        // Look at previous hit. it registers 
+        // but the hoit before that is erased.
+        process.stdin.once('data', function (input) {
+        if (input === 'quit\n') {
+            process.exit();
+        } else {
+            input = input.trim().split(",");
+            inputRow = parseInt(input[0] - 1);
 
+            regex = /^[a-zA-Z]$/;
 
-      game = new Game();
-      game.setup();
+            if(regex.test(input[1]) && inputRow >= 0 && inputRow <= 9){
+                inputCol = Util.belt.charMap[input[1].toUpperCase()] - 1;
+                playerFs.openFire(inputRow,inputCol);
+                enemyFs.autoFire();
+                playGame();
+            } else {
+                setTimeout(function() {
+                    playGame();       
+                }, 2000);
+                console.log(clc.red('|---------  Incorect Format  ---------| '))
+                console.log('Target information should be entered as:')
+                console.log(clc.green('row,column'))
+            }
 
-      buildEnemyBoard()
-      autoPlaceBoard()
-      // placeShips();
-
-      enemyFs = new firingSolution('player1');
-      myFs = new firingSolution('player2');
-      //  console.log('\033[2J');
-      // console.log('______YOUR  BOARD______')
-      // game.player1.board.render('visible');
-      // console.log('______ENEMY BOARD______')
-      // game.player2.board.render('hidden');
-      if (games === 300) {
-        writer.end()
-      } else {
-        playGame();
-      }
+          }
+        });
+    } else {
+        console.log('<<<<<<< GAME OVER >>>>>>>');
+        console.log('WINNER: ' + won );
+        console.log('ROUNDS: ' + round / 2);
     }
 }
-
-playGame();
-
-// function playGame() {
-//   console.log('\033[2J');
-//   console.log('______YOUR  BOARD______')
-//   game.player1.board.render('visible');
-//   console.log('______ENEMY BOARD______')
-//   game.player2.board.render('hidden');
-//   console.log('Take a shot');
-//     process.stdin.once('data', function (input) {
-//       if (input === 'quit\n') {
-//         process.exit();
-//       } else {
-//         input = input.trim().split("");
-//         row = parseInt(input[0] - 1);
-//         col = Util.charMap[input[1].toUpperCase()] - 1;
-//         console.log("row___: " + row);
-//         console.log("col___: " + col);
-//         volly = game.player2.board.fire(row,col);
-//         if (volly) {
-//           console.log("HIT");
-//         } else {
-//           console.log("MISS");
-//         }
-//       }
-//       enemyFs.fire();
-//       playGame();
-//   });
-// }
-
-
 
 
 function render() {
-    game.player1.board.render();
+    game.player1.board.render('visible');
 }
 
-function buildEnemyBoard() {
 
-    if (game.player2.shipStateInfo('placed') === false) {
-
-        for (var i = 0; i < game.player2.shipState.length; i++) {
-            if (game.player2.shipState[i].placed === 1) {
-                game.player2.placeState = [game.player2.shipState[i].type, Util.randNum(4), Util.randNum(4), Util.directions[Util.randNum(4) - 1], "player2"];
-
-                valid = game.placeShipState.apply(this, game.player2.placeState);
-
-                if (valid) {
-                    game.player2.shipState[i].placed = 0;
-                } else {
-                    buildEnemyBoard();
-                }
-            };
-        }
-    }
-}
-
-function autoPlaceBoard() {
+function autoPlaceBoard(player) {
     //loop though the ships
     // pick a random spot on the board
     // pick a random index out of up down left right
     // try and place ship
-    if (game.player1.shipStateInfo('placed') === false) {
+    if (game[player].shipStateInfo('placed') === false) {
+        for (var i = 0; i < game[player].shipState.length; i++) {
+            if (game[player].shipState[i].placed === 1) {
+                game[player].placeState = [game[player].shipState[i].type, Util.belt.randNum(9), Util.belt.randNum(9), Util.belt.directions[Util.belt.randNum(4) - 1], player];
 
-        for (var i = 0; i < game.player1.shipState.length; i++) {
-            if (game.player1.shipState[i].placed === 1) {
-                game.player1.placeState = [game.player1.shipState[i].type, Util.randNum(4), Util.randNum(4), Util.directions[Util.randNum(4) - 1], "player1"];
-
-                valid = game.placeShipState.apply(this, game.player1.placeState);
+                valid = game.placeShipState.apply(this, game[player].placeState);
 
                 if (valid) {
-                    game.player1.shipState[i].placed = 0;
+                    game[player].shipState[i].placed = 0;
                 } else {
-                    autoPlaceBoard();
+                    autoPlaceBoard(player);
                 }
             };
         }
@@ -744,7 +670,7 @@ function autoPlaceBoard() {
 
 
 
-function placeShips(callback) {
+function startGame() {
     if (game.player1.shipStateInfo('placed') === false) {
 
         if (game.player1.placeState[0] === null) {
@@ -767,23 +693,22 @@ function placeShips(callback) {
                 if (input === 'quit\n') {
                     process.exit();
                 } else {
-                    var input = input.trim()
-                        .toLowerCase();
+                    var input = input.trim().toLowerCase();
                     var valid = false;
-                    for (var prop in Ships) {
-                        for (var i = 0; i < Ships[prop].possibleNames.length; i++) {
-                            if (Ships[prop].possibleNames[i] === input) {
+                    for (var prop in Util.ships) {
+                        for (var i = 0; i < Util.ships[prop].possibleNames.length; i++) {
+                            if (Util.ships[prop].possibleNames[i] === input) {
                                 game.player1.placeState.splice(0, 0, prop);
                                 valid = true;
                                 render();
-                                placeShips();
+                                startGame();
                             }
                         }
                     }
                     if (!valid) {
                         render();
                         console.log(error('Thats not a ship man'));
-                        placeShips();
+                        startGame();
                     }
                 }
             });
@@ -793,15 +718,15 @@ function placeShips(callback) {
                 if (input === 'quit\n') {
                     process.exit();
                 } else {
-                    input = parseInt(input.trim());
-                    if (input > 0 && input < 11) {
-                        game.player1.placeState.splice(1, 0, input);
+                    input = parseInt(input.trim()) - 1;
+                    if (input >= 0 && input <= 10) {
+                        game.player1.placeState.splice(1, 0, input );
                         render();
-                        placeShips();
+                        startGame();
                     } else {
                         render();
                         console.log(error("Thats out of bounds!"));
-                        placeShips();
+                        startGame();
                     }
                 }
             });
@@ -812,16 +737,15 @@ function placeShips(callback) {
                     process.exit();
                 } else {
                     input = input.trim();
-                    mapedInput = parseInt(Util.charMap[input.toUpperCase()]);
-
-                    if (mapedInput > 0 && mapedInput < 11) {
-                        game.player1.placeState.splice(2, 0, mapedInput);
+                    mappedInput = parseInt(Util.belt.charMap[input.toUpperCase()]) - 1;
+                    if (mappedInput >= 0 && mappedInput <= 10) {
+                        game.player1.placeState.splice(2, 0, mappedInput);
                         render();
-                        placeShips();
+                        startGame();
                     } else {
                         console.log(error("Thats out of bounds!"));
                         render();
-                        placeShips();
+                        startGame();
                     }
                 }
             });
@@ -847,7 +771,7 @@ function placeShips(callback) {
                         game.player1.placeState.length = 0;
                         game.player1.placeState.push(null);
                         render();
-                        placeShips();
+                        startGame();
                     } else {
 
                         game.player1.placeState[3] = null;
@@ -855,10 +779,12 @@ function placeShips(callback) {
 
                         console.log(error("Thats not a direction dude....\n") + info("[up,down,left,right]"));
                         render();
-                        placeShips();
+                        startGame();
                     }
                 }
             });
         }
+    }else {
+        playGame();
     }
 }
