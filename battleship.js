@@ -581,12 +581,12 @@ console.log(clc.red(Render.introText));
 
 game = new Game();
 game.setup();
-autoPlaceBoard('player1')
+// autoPlaceBoard('player1')
 autoPlaceBoard('player2')
 enemyFs = new firingSolution('player1'); //solution is for the target not player
 playerFs = new firingSolution('player2'); //solution is for the target not player
-// startGame();
-playGame();
+startGame();
+// playGame();
 
 
 function playGame() {
