@@ -6,6 +6,7 @@ I was reading an interesting article about writing a battlship AI for a stackove
 ##To Install
 make sure you have node installed and
 run    `npm install`
+then `node battleship.js`
 
 ##Todo
 - [ ] Improve AI so it kills off ships before hunting for a new target.
