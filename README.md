@@ -11,6 +11,7 @@ run    `npm install`
 - [ ] Improve AI so it kills off ships before hunting for a new target.
 - [ ] Make the game statistics log to a csv file
 - [X] Autobuild for boards
+- [ ] Multiplayer over a socket connection
 
 
 Setup  | Hunting
