@@ -55,7 +55,7 @@ function firingSolution(player) {
     this.targetArea = [];
     this.lastHits = [];
     this.estimatedVector = null;
-    this.lastShipSunk =
+    this.lastShipSunk = null;
 
     //This function if for human consumption
     this.openFire = function(row,col) {
@@ -155,8 +155,8 @@ function Board() {
                 var state = _this.state[r][c];
                 _this.renderedBoard[r][c] = clc.blackBright("0")
                 if (r % 2 === 0) {
-                     _this.renderedBoard[r][c] = clc.blackBright.bgWhite("0");
-                };
+                     _this.renderedBoard[r][c] = clc.blackBright("0") 
+                }
                 if (state.hit) {
                     _this.renderedBoard[r][c] = clc.redBright("!");
                 }
@@ -575,18 +575,47 @@ var Render = {
 };
 
 
+
 process.stdout.write(clc.art(Render.battleShip, style));
 console.log(clc.red(Render.introText));
 
 
 game = new Game();
 game.setup();
-// autoPlaceBoard('player1')
+autoPlaceBoard('player1')
 autoPlaceBoard('player2')
 enemyFs = new firingSolution('player1'); //solution is for the target not player
 playerFs = new firingSolution('player2'); //solution is for the target not player
 startGame();
 // playGame();
+
+autoPlay();
+
+function autoPlay() {
+    if (!over) {
+
+        console.log('\033[2J'); // clear screen;
+
+        console.log('______YOUR  BOARD______')
+        game.player1.board.render('visible');
+
+        console.log('______ENEMY BOARD______')
+        game.player2.board.render('hidden');
+        game.renderShipState();
+
+        
+        enemyFs.autoFire();
+        playerFs.autoFire();
+        autoPlay();
+    } 
+    else {
+        console.log('<<<<<<< GAME OVER >>>>>>>');
+        console.log('WINNER: ' + won );
+        console.log('ROUNDS: ' + round / 2);
+        console.log('game over');
+    }
+
+}
 
 
 function playGame() {
@@ -752,6 +781,7 @@ function startGame() {
         } else if (game.player1.placeState[3] === null) {
             console.log('What direction do you want to place the ' + game.player1.placeState[0]);
             process.stdin.once('data', function(input) {
+
                 if (input === 'quit\n') {
                     process.exit();
                 } else {
