@@ -147,7 +147,7 @@ function Board() {
     }
 
     // visiblity allows diferent render states
-    // 'VISIBLE' allows for board to shows ship class
+    // 'VISIBLE' allows for board to show ship class
     this.render = function(visibility) {
 
         for (var r = 0; r < _this.state.length; r++) {
